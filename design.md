@@ -59,6 +59,9 @@ avoid putting null checks on absolutely everything in your QML.
 
 Types are their own complicated topic, but briefly: in the metaobject, primitive types and strings
 are themselves, backend objects are QObject\*, and all other types (notably array/map) are QJSValue.
+When objects are given as values (e.g. method parameters, property writes), they are sent to the
+backend as an object identifier, which it can turn back into the Go object. Objects in arrays and
+maps are translated, both inbound and outbound.
 
 Garbage collection is a more complicated topic, explained below. Objects are given javascript
 ownership as they're passed to QML. As these are collected by JS, a reference is released on the
@@ -69,24 +72,78 @@ The [QML API Reference](XXX) has more detail on using QBackend in QML applicatio
 
 ### Backend (Go)
 
-- Connection, message loop,  threadsafety
-- Root object
-- QObject embedding & initialization
-- Properties, methods, and signals
-- Refer to api doc
+The backend creates a Connection, assigns a root object, and allows it to run. There are two
+methods for running the connection:
 
-On the backend, a connection is created, given a _root object_, and run in a goroutine. The root
-object is a singleton, always available to the client as `Backend`.
+`Run()` handles messages for the connection in a loop until closed. It requires the application
+to manage concurrency issues with any data exposed to QBackend; generally, that is tricky if there
+is any interaction outside of messages from the client
 
-On the backend, any struct embedding `qbackend.QObject` becomes a full object
+`Process()` handles messages without blocking. `ProcessSignal()` returns a channel which will be
+signalled when there are messages to process. No data will be accessed except during calls to
+`Process()` or to other qbackend methods (notably methods of QObject). This can be woven into other
+loops or turned into a lock primitive; see the [Go API Reference](XXX) for details.
+
+An important requirement in setting up a connection is the root object. This is a singleton QObject
+which will always be available to the client under a known name, so it's a place from which you can
+bootstrap your API.
+
+The key to everything is `qbackend.QObject`: when embedded in a struct, this interface magically
+transforms a struct into a QBackend object when it's exposed to the connection. QObject adds an API
+of its own onto the struct: it does json marshal, a few qbackend related values, and can invoke
+methods, emit signals, etc.
+
+There is no need to initialize `QObject`; it will be initialized just in time. As data is marshaled
+to send to the client, any QObject encountered is initialized. In most cases, that's all you need:
+there's little point when the client can't possibly know about the object yet. For cases where you
+want to call methods earlier and avoid checking, `Connection.InitObject` does the same manually.
+
+QObject types (that is, types embedding QObject) are reflected to build typeinfo, which is
+eventually turned into a Qt metaobject. The typeinfo declares all properties, methods, and signals.
+
+Exported (uppercase) methods of QObject types become methods of the object with a lowercase first
+letter, to fit QML convention. Any type that JSON can encode should generally work for arguments.
+Arguments with QObject types, directly or indirectly (e.g. in slices, maps, structs), will do the
+right things. Return values will be ignored.
+
+Fields with a function type become signals. These require a particular tag to name each argument.
+These functions will be nil initially, but when QObject initializes it will assign a function to
+emit the signal. Signals can also be emitted with `QObject.Emit`, and it's valid to set the
+function yourself. Either way, the signal can be simply called as if it were a method to emit to
+the client. The declaration will look something like `Updated func(int) \`qbackend:"timestamp"\``,
+which QML can receive with `onUpdated: console.log("time is", timestamp)`
+
+All other exported fields are properties. Like methods, properties have a lowercase first letter
+to match QML conventions. Generally, any JSON-encodable type is valid. Any QObject structs will
+refer to the actual object on the client. All other structs are encoded as maps of string to value.
+QObjects within slices, maps, structs, interfaces, or any combination of these will still work.
+Fields with a `json:` tag will use the provided name, still with the first letter lowercase.
+Ignored fields (`json:"-"`) will not appear as properties.
+
+Properties implicitly have a 'propNameChanged' signal, which is emitted whenever the value changes
+on the client. QObject has `ResetProperties()` and `Changed(property string)` methods to notify
+about property changes and send updated values to the client.
+
+The [Go API Reference](XXX) has more useful information on usage in practice.
+
+XXX This section might have too much detail
 
 ## Connections
 
-- Simple text/JSON protocol over sockets
-- Sometimes used entirely in-process, sometimes multi-process
-- Only intended for local use; latency sensitive
+The connection between the backend and client uses a simple text+JSON protocol over a socket.
+It can be used entirely in-process or between separate local processes. It's not intended for
+remote use; the client is very latency sensitive.
+
+A handful of standardized options were considered, but most RPC systems fail one of these
+requirements:
+
+ * Spontaneous messages from either direction
+ * Primarily asynchronous but able to block for messages
+ * Not insane
 
 ### Transport
+
+
 
 - Autoconfig
 - In-process with pipes
@@ -204,6 +261,7 @@ On the backend, any struct embedding `qbackend.QObject` becomes a full object
 - Limited to 10
 - Only available with the singleton-style import (currently)
 - Models too
+- componentComplete
 
 ## Models
 

@@ -113,12 +113,6 @@ void QBackendConnection::setUrl(const QUrl& url)
     }
 }
 
-QObject *QBackendConnection::rootObject()
-{
-    ensureRootObject();
-    return m_rootObject;
-}
-
 void QBackendConnection::setBackendIo(QIODevice *rd, QIODevice *wr)
 {
     if (m_readIo || m_writeIo) {
@@ -212,29 +206,6 @@ bool QBackendConnection::ensureConnectionInit()
     return m_version;
 }
 
-bool QBackendConnection::ensureRootObject()
-{
-    if (!ensureConnectionInit())
-        return false;
-    if (m_rootObject)
-        return true;
-
-    Q_ASSERT(qmlEngine());
-    if (!qmlEngine()) {
-        qCCritical(lcConnection) << "Connection cannot build root object without a QML engine";
-        return false;
-    }
-
-    QElapsedTimer tm;
-    qCDebug(lcConnection) << "Blocking until root object is ready";
-    tm.restart();
-
-    waitForMessage("root", [](const QJsonObject &msg) { return msg.value("command").toString() == "ROOT"; });
-
-    qCDebug(lcConnection) << "Blocked for" << tm.elapsed() << "ms for root object";
-    return (bool)m_rootObject;
-}
-
 // Register instantiable types with the QML engine, blocking if necessary
 void QBackendConnection::registerTypes(const char *uri)
 {
@@ -265,17 +236,6 @@ void QBackendConnection::registerTypes(const char *uri)
     }
 }
 
-void QBackendConnection::classBegin()
-{
-}
-
-void QBackendConnection::componentComplete()
-{
-    // Block to wait for the connection to complete; this ensures that root is always
-    // available, and avoids a lot of ugly initialization cases for applications.
-    ensureRootObject();
-}
-
 /* I gift to you a brief, possibly accurate protocol description.
  *
  * == Protocol framing ==
@@ -294,7 +254,7 @@ void QBackendConnection::componentComplete()
  *   { "command": "VERSION", ... }
  *
  * == Commands ==
- * RTFS. Backend is expected to send VERSION, CREATABLE_TYPES, and ROOT immediately, in
+ * RTFS. Backend is expected to send VERSION, and CREATABLE_TYPES immediately, in
  * that order, unconditionally.
  */
 
@@ -457,24 +417,6 @@ void QBackendConnection::handleMessage(const QJsonObject &cmd)
         Q_ASSERT(m_state == ConnectionState::WantTypes);
         m_creatableTypes = cmd.value("types").toArray();
         setState(ConnectionState::WantEngine);
-    } else if (command == "ROOT") {
-        Q_ASSERT(m_state == ConnectionState::Ready);
-
-        // The cmd object itself is a backend object structure
-        if (cmd.value("identifier").toString() != QStringLiteral("root")) {
-            qCWarning(lcConnection) << "Root object has unexpected identifier:" << cmd.value("identifier");
-            return;
-        }
-
-        if (!m_rootObject) {
-            m_rootObject = ensureObject("root", cmd.value("type").toObject());
-            QQmlEngine::setObjectOwnership(m_rootObject, QQmlEngine::CppOwnership);
-            m_objects.value("root")->objectFound(cmd.value("data").toObject());
-            emit ready();
-        } else {
-            // XXX assert that type has not changed
-            m_objects.value("root")->objectFound(cmd.value("data").toObject());
-        }
     } else if (command == "OBJECT_RESET") {
         QByteArray identifier = cmd.value("identifier").toString().toUtf8();
         auto obj = m_objects.value(identifier);

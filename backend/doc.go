@@ -39,9 +39,6 @@
 // there are no remaining references to the object from Go or QML. Generally, there is no need to treat them
 // differently from any other type.
 //
-// A singleton "root object" is always available within QML as Backend, which makes a useful starting point
-// for objects and API.
-//
 // Data Models
 //
 // For large, complex, or dynamic data used in QML views, Model provides a QAbstractListModel equivalent API.
@@ -84,10 +81,6 @@
 // Connection is created with a socket for communication with the frontend. Its documentation describes the
 // sockets and corresponding behavior of the QML plugin in more detail. In many cases, wrappers like
 // backend/qmlscene can be used to avoid dealing with sockets.
-//
-// Most importantly, the RootObject must be assigned on the connection. This can be any QObject instance of your
-// choice. The root object is always available as the Backend singleton in QML. Instantiable types must also be
-// registered to the Connection before continuing; they cannot be added once the connection has started.
 //
 // Finally, the connection is started by calling Run() or (in a loop) Process(). Be aware that any members of
 // any initialized QObjects can be accessed during calls to Run, Process, or calls by the application to some

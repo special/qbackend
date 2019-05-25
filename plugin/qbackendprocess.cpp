@@ -64,7 +64,5 @@ void QBackendProcess::componentComplete()
 
     m_process.waitForStarted();
     setBackendIo(&m_process, &m_process);
-
-    QBackendConnection::componentComplete();
 }
 

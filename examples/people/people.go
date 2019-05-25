@@ -7,10 +7,6 @@ import (
 	"github.com/CrimsonAS/qbackend/backend/qmlscene"
 )
 
-type Root struct {
-	qbackend.QObject
-}
-
 type Person struct {
 	qbackend.QObject
 	FirstName string
@@ -77,7 +73,6 @@ func (this *PersonModel) UpdatePerson(idx int, firstName, lastName string, age i
 }
 
 func main() {
-	qmlscene.Connection.RootObject = &Root{}
 	qmlscene.Connection.RegisterType("PersonModel", &PersonModel{})
 	qmlscene.Connection.RegisterType("Person", &Person{})
 	qmlscene.RunFile("main.qml")

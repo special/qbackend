@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QObject>
-#include <QQmlParserStatus>
 #include <QIODevice>
 #include <QUrl>
 #include <QPointer>
@@ -30,12 +29,10 @@ public:
     virtual void methodReturned(const QByteArray& returnId, const QJsonValue& value, bool isError) = 0;
 };
 
-class QBackendConnection : public QObject, public QQmlParserStatus
+class QBackendConnection : public QObject
 {
     Q_OBJECT
-    Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(QUrl url READ url WRITE setUrl NOTIFY urlChanged)
-    Q_PROPERTY(QObject* root READ rootObject NOTIFY ready)
 
 public:
     QBackendConnection(QObject *parent = nullptr);
@@ -46,8 +43,6 @@ public:
 
     QUrl url() const;
     void setUrl(const QUrl& url);
-
-    QObject *rootObject();
 
     Q_INVOKABLE QObject *object(const QByteArray &identifier) const;
     QObject *ensureObject(const QJsonObject &object);
@@ -77,8 +72,6 @@ signals:
 
 protected:
     void setBackendIo(QIODevice *read, QIODevice *write);
-    void classBegin() override;
-    void componentComplete() override;
 
 private slots:
     void handleDataReady();
@@ -96,7 +89,6 @@ private:
 
     bool ensureConnectionConfig();
     bool ensureConnectionInit();
-    bool ensureRootObject();
 
     void handleMessage(const QByteArray &message);
     void handleMessage(const QJsonObject &message);
@@ -124,7 +116,6 @@ private:
 
     // Hash of identifier -> proxy object for all existing objects
     QHash<QByteArray,QBackendRemoteObject*> m_objects;
-    QObject *m_rootObject = nullptr;
     QJsonArray m_creatableTypes;
 
     QHash<QString,QMetaObject*> m_typeCache;

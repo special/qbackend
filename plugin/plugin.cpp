@@ -16,8 +16,7 @@ void QBackendPlugin::registerTypes(const char *uri)
 
     if (QByteArray(uri) == "Crimson.QBackend") {
         // Make the connection immediately, so it will have an opportunity to register
-        // types dynamically. It cannot complete the root object until a QQmlEngine is
-        // available, which happens from the singleton callback.
+        // types dynamically.
         Q_ASSERT(!singleConnection);
         singleConnection = new QBackendConnection;
 
@@ -31,24 +30,6 @@ void QBackendPlugin::registerTypes(const char *uri)
         // its children to the main thread.
         singleConnection->registerTypes(uri);
         singleConnection->moveToThread(QCoreApplication::instance()->thread());
-
-        qmlRegisterSingletonType<QBackendObject>(uri, 1, 0, "Backend",
-            [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QObject*
-            {
-                Q_UNUSED(scriptEngine);
-                // The root object and other initialization can't take place until there is
-                // a qml engine, so these are still blocked at this point.
-                singleConnection->setQmlEngine(engine);
-
-                QObject *root = singleConnection->rootObject();
-                // The rootObject has JS ownership, and we'll be returning a reference to
-                // it from this function. Even though it seems backwards, the easiest way
-                // to make sure the connection is destroyed at the proper moment is to make
-                // the root object its parent.
-                singleConnection->setParent(root);
-                return root;
-            }
-        );
     } else if (QByteArray(uri) == "Crimson.QBackend.Connection") {
         // QBackend.Connection exposes explicit types for the connection, including a
         // type to execute a new process for the backend.

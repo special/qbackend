@@ -13,14 +13,6 @@ import (
 )
 
 type Connection struct {
-	// RootObject is a singleton object that is always globally available to
-	// the client. The root object must be set before connecting. It is a normal
-	// object in all ways, except that it will never be destroyed.
-	//
-	// This field may not be changed after connecting, but the object can of
-	// course change its fields at any time.
-	RootObject AnyQObject
-
 	in           io.ReadCloser
 	out          io.WriteCloser
 	objects      map[string]*QObject
@@ -34,7 +26,7 @@ type Connection struct {
 }
 
 // NewConnection creates a new connection from an open stream. To use the
-// connection, a RootObject must be assigned and Run() or Process() must be
+// connection, types must be registered, and Run() or Process() must be
 // called to start processing data.
 func NewConnection(data io.ReadWriteCloser) *Connection {
 	return NewConnectionSplit(data, data)
@@ -118,34 +110,6 @@ func (c *Connection) handle() {
 		})
 	}
 
-	// ROOT
-	{
-		if c.RootObject == nil {
-			c.fatal("no root object on active connection")
-			return
-		}
-		impl, _ := asQObject(c.RootObject)
-		impl.ref = true
-
-		data, err := impl.marshalObject()
-		if err != nil {
-			c.fatal("marshalling of root object failed: %s", err)
-			return
-		}
-
-		c.sendMessage(struct {
-			messageBase
-			Identifier string      `json:"identifier"`
-			Type       *typeInfo   `json:"type"`
-			Data       interface{} `json:"data"`
-		}{
-			messageBase{"ROOT"},
-			"root",
-			impl.typeInfo,
-			data,
-		})
-	}
-
 	rd := bufio.NewReader(c.in)
 	for c.err == nil {
 		sizeStr, err := rd.ReadString(' ')
@@ -191,12 +155,6 @@ func (c *Connection) handle() {
 func (c *Connection) ensureHandler() error {
 	if !c.started {
 		c.started = true
-
-		if c.RootObject == nil {
-			c.fatal("connection must have a root object")
-		} else if _, err := initObjectId(c.RootObject, c, "root"); err != nil {
-			c.fatal("root object init failed: %s", err)
-		}
 
 		if c.err != nil {
 			return c.err

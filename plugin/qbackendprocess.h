@@ -9,7 +9,7 @@
 // A backend process is one form of RPC. It is not the only form of RPC.
 // It populates the repository with properties, models, and so on.
 
-class QBackendProcess : public QBackendConnection
+class QBackendProcess : public QBackendConnection, public QQmlParserStatus
 {
     Q_OBJECT
     Q_PROPERTY(QString name READ name WRITE setName NOTIFY nameChanged)

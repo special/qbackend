@@ -3,6 +3,7 @@
 #include <QMetaObject>
 #include <QJsonObject>
 #include <QQmlEngine>
+#include <QJSEngine>
 #include <QtCore/private/qmetaobjectbuilder_p.h>
 #include "qbackendobject_p.h"
 
@@ -41,7 +42,16 @@ public:
 
         staticMetaObject = *metaObjectFromType(type, &T::staticMetaObject);
 
-        qmlRegisterType<InstantiableBackendType<T,I>>(uri, 1, 0, staticMetaObject.className());
+        if (type.value("_qb_singleton").isUndefined()) {
+            qmlRegisterType<InstantiableBackendType<T,I>>(uri, 1, 0, staticMetaObject.className());
+        } else {
+            qmlRegisterSingletonType(uri, 1, 0, staticMetaObject.className(), [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QJSValue {
+                    Q_UNUSED(engine)
+
+                    return scriptEngine->newQObject(staticMetaObject.newInstance());
+            });
+        }
+
         qCDebug(lcConnection) << "Registered instantiable type" << staticMetaObject.className();
     }
 

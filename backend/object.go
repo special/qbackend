@@ -121,18 +121,19 @@ const (
 // Serialization of the properties of a QObject happens internally. These details
 // may change.
 //
-// Initialization & QObject Methods
+// Initialization
 //
 // QObjects usually don't need explicit initialization. When a QObject is encountered
 // in the properties or parameters of another object, it's initialized automatically.
-// Initialization assigns the embedded QObject interface, a unique object ID, and sets
-// handlers on any nil signal fields. Objects can be initialized immediately with
-// Connection.InitObject or Connection.InitObjectId.
+// Initialization assigns a unique object ID and sets handlers on any nil signal
+// fields (so they can be called directly). It's safe to call QObject's methods
+// on an uninitialized object; they generally have no effect.
 //
-// The embedded QObject is initially nil, meaning that calls to any of QObject's methods
-// will panic. Any unassigned signals will also be nil until the QObject is initialized.
-// Take care to check before calling these methods if the object might not have been
-// used.
+// Objects can be initialized immediately with Connection. A custom object ID can
+// be set with Connection.InitObjectId(). This can be useful when wrapping an
+// external Go type with a QObject type, because keeping a list of pointers would
+// prevent garbage collection. The QObject can be found by ID with Connection.Object()
+// if it still exists.
 //
 // Garbage Collection
 //

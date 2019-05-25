@@ -145,12 +145,12 @@ func TestMethods(t *testing.T) {
 	ti, _ := json.Marshal(q.QObject.typeInfo)
 	t.Logf("Typeinfo: %s", ti)
 
-	err := q.invoke("increment")
+	_, err := q.invoke("increment")
 	if err != nil || q.Count != 1 {
 		t.Errorf("Invoking 'Increment' failed: %v", err)
 	}
 
-	err = q.invoke("add", 4)
+	_, err = q.invoke("add", 4)
 	if err != nil || q.Count != 5 {
 		t.Errorf("Invoking 'Add' failed: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestMethods(t *testing.T) {
 	strObjRef := make(map[string]string)
 	strObjRef["_qbackend_"] = "object"
 	strObjRef["identifier"] = strObj.Identifier()
-	if err := q.invoke("update", strObjRef); err != nil {
+	if _, err := q.invoke("update", strObjRef); err != nil {
 		t.Errorf("Invoking 'Update' failed: %v", err)
 	}
 	if strObj.StringData != "Count is 5" {

@@ -73,8 +73,8 @@ func TestParseTypes(t *testing.T) {
 		if len(m.Args) != 2 {
 			t.Errorf("Method expected %d args but has %d: %v", 2, len(m.Args), m.Args)
 		}
-		if len(m.Return) != 2 {
-			t.Errorf("Method expected %d return values but has %d: %v", 2, len(m.Return), m.Return)
+		if len(m.Return) != 1 {
+			t.Errorf("Method expected %d return values but has %d: %v", 1, len(m.Return), m.Return)
 		}
 	} else {
 		t.Errorf("Missing method 'realMethod'")

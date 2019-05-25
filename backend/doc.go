@@ -34,8 +34,8 @@
 //  property int numSteps: demo.steps.length
 //  onClicked: { demo.run(); demo.steps = [] }
 //
-// QObjects are used by passing them (by pointer) to the frontend in the properties or signals of other
-// objects. They do not need to be initialized explicitly, and they will be garbage collected normally once
+// QObjects are used by passing them (by pointer) to the frontend in properties, signals, and return values of
+// other objects. They do not need to be initialized explicitly, and they will be garbage collected normally once
 // there are no remaining references to the object from Go or QML. Generally, there is no need to treat them
 // differently from any other type.
 //
@@ -72,6 +72,7 @@
 //      value: 123
 //      onValueChanged: { ... }
 //  }
+//
 // Optional interface methods allow the QObject to initialize values and act when construction is completed or
 // after QML destruction.
 //

@@ -25,32 +25,28 @@ const (
 //  type Thing struct {
 //      backend.QObject
 //
-//      Property []string
+//      Strings []string
 //      Signal func(int) `qbackend:"value"`
 //  }
 //
-//  func (t *Thing) Method(otherThing *Thing) {
+//  func (t *Thing) Join(otherThing *Thing) (string, error) {
+//      if otherThing == nil {
+//          return "", errors.New("missing other Thing")
+//      }
+//      allStrings := append(t.Strings, otherThing.Strings...)
+//      return strings.Join(allStrings, " "), nil
 //  }
-//
-//
-// Methods
-//
-// Exported methods of the struct can be called as methods on the object.
-// To match QML syntax, the first letter of the method name will be lowercase.
-// Any serializable (see below) types can be used in parameters, including
-// other QObjects. Methods are called from QML asynchronously and don't have
-// any return value.
 //
 // Properties
 //
-// Exported fields are properties of the object. Fields with a func type
-// or those tagged with `qbackend:"-"` or `json:"-"` are ignored. Properties
-// can be renamed by tagging the field with `json:"xxx"`. Like methods, the
-// first letter of the name is lowercase in QML.
+// Exported fields are properties of the object. To match QML's syntax,
+// the first letter of the property name is always made lowercase. Properties
+// can be renamed using the `json:"xxx"` field tag. Fields tagged with
+// `qbackend:"-"` or `json:"-"` are ignored.
 //
 // Properties are read-only by default. If a method named "setProp" exists
 // and takes one parameter of the correct type, the property "prop" will be
-// writable and will use that setter.
+// writable in QML by automatically calling that set method.
 //
 // Properties have change signals (e.g. "propChanged") automatically. When the
 // value of a field changes, call QObject.Changed() with the property name to
@@ -71,6 +67,45 @@ const (
 // have been used yet, because the signals may be nil. Custom functions can be
 // assigned to the field instead; they will not be replaced during initialization,
 // and QObject.Emit() can be used to emit the signal directly.
+//
+// Methods
+//
+// Exported methods of the struct can be called as methods on the object.
+// To match QML syntax, the first letter of the method name will be lowercase.
+// Any serializable (see below) types can be used in parameters and return
+// values, including other QObjects.
+//
+// Calls to Go methods from QML are asynchronous. In QML, all Go backend
+// methods return a javascript Promise object. That promise is resolved with
+// any return values from the backend or rejected in case of errors. There is
+// no way to call methods synchronously.
+//
+// If the Go method returns multiple values, they are passed as an array when
+// the Promise is resolved. If the last (or only) return type is `error` and
+// is not nil, the Promise is rejected with that error. Nil errors are not
+// included in the return values.
+//
+// Using the Thing example above from QML:
+//
+//  Thing {
+//      id: obj
+//      strings: [ "one", "two" ]
+//  }
+//  Thing {
+//      id: obj2
+//      strings: [ "three" ]
+//  }
+//
+//  onClicked: {
+//      obj.join(obj2).then(
+//          result => {
+//              console.log("joined string:", result)
+//          },
+//          error => {
+//              console.warn("join failed:", error)
+//          }
+//      )
+//  }
 //
 // Serializable Types
 //

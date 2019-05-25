@@ -117,6 +117,7 @@ private:
     // Hash of identifier -> proxy object for all existing objects
     QHash<QByteArray,QBackendRemoteObject*> m_objects;
     QJsonArray m_creatableTypes;
+    QJsonObject m_singletons;
 
     QHash<QString,QMetaObject*> m_typeCache;
 };

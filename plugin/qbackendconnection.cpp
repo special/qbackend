@@ -234,6 +234,21 @@ void QBackendConnection::registerTypes(const char *uri)
         else
             addInstantiableBackendType<QBackendObject>(uri, this, type);
     }
+
+    for (auto it = m_singletons.constBegin(); it != m_singletons.constEnd(); it++) {
+        // These can't be created as QBackendObjects yet because there isn't
+        // an engine. Singletons are never deleted, so it's okay to just store
+        // the JSON refs until they're needed.
+        QJsonObject objectRef = it.value().toObject();
+        QString name = it.key();
+        if (name.isEmpty() || !name[0].isUpper()) {
+            qCWarning(lcConnection) << "Singleton name" << name << "must start with an uppercase letter";
+            name[0] = name[0].toUpper();
+        }
+
+        qmlRegisterSingletonType(uri, 1, 0, name.toUtf8().constData(), createSingleton(this, objectRef));
+        qCDebug(lcConnection) << "Registered singleton" << it.key();
+    }
 }
 
 /* I gift to you a brief, possibly accurate protocol description.
@@ -416,6 +431,7 @@ void QBackendConnection::handleMessage(const QJsonObject &cmd)
     } else if (command == "CREATABLE_TYPES") {
         Q_ASSERT(m_state == ConnectionState::WantTypes);
         m_creatableTypes = cmd.value("types").toArray();
+        m_singletons = cmd.value("singletons").toObject();
         setState(ConnectionState::WantEngine);
     } else if (command == "OBJECT_RESET") {
         QByteArray identifier = cmd.value("identifier").toString().toUtf8();

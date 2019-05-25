@@ -42,15 +42,7 @@ public:
 
         staticMetaObject = *metaObjectFromType(type, &T::staticMetaObject);
 
-        if (type.value("_qb_singleton").isUndefined()) {
-            qmlRegisterType<InstantiableBackendType<T,I>>(uri, 1, 0, staticMetaObject.className());
-        } else {
-            qmlRegisterSingletonType(uri, 1, 0, staticMetaObject.className(), [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QJSValue {
-                    Q_UNUSED(engine)
-
-                    return scriptEngine->newQObject(staticMetaObject.newInstance());
-            });
-        }
+        qmlRegisterType<InstantiableBackendType<T,I>>(uri, 1, 0, staticMetaObject.className());
 
         qCDebug(lcConnection) << "Registered instantiable type" << staticMetaObject.className();
     }
@@ -119,6 +111,7 @@ public:
     static QJSValue create(QQmlEngine *engine, QJSEngine *scriptEngine)
     {
         Q_UNUSED(scriptEngine);
+        qCDebug(lcConnection) << "Creating instance of singleton" << objectRef.value("identifier").toString();
         c->setQmlEngine(engine);
         return c->ensureJSObject(objectRef);
     }

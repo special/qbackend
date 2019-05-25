@@ -9,6 +9,7 @@ import (
 	"log"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -17,6 +18,7 @@ type Connection struct {
 	out          io.WriteCloser
 	objects      map[string]*QObject
 	instantiable map[string]instantiableType
+	singletons   map[string]*QObject
 	knownTypes   map[string]struct{}
 	err          error
 
@@ -41,6 +43,7 @@ func NewConnectionSplit(in io.ReadCloser, out io.WriteCloser) *Connection {
 		out:           out,
 		objects:       make(map[string]*QObject),
 		instantiable:  make(map[string]instantiableType),
+		singletons:    make(map[string]*QObject),
 		knownTypes:    make(map[string]struct{}),
 		processSignal: make(chan struct{}, 2),
 		queue:         make(chan []byte, 128),
@@ -103,10 +106,12 @@ func (c *Connection) handle() {
 
 		c.sendMessage(struct {
 			messageBase
-			Types []*typeInfo `json:"types"`
+			Types      []*typeInfo         `json:"types"`
+			Singletons map[string]*QObject `json:"singletons"`
 		}{
 			messageBase{"CREATABLE_TYPES"},
 			types,
+			c.singletons,
 		})
 	}
 
@@ -471,6 +476,21 @@ func (c *Connection) RegisterType(name string, template AnyQObject) error {
 		return obj.Interface().(AnyQObject)
 	}
 	return c.RegisterTypeFactory(name, template, factory)
+}
+
+func (c *Connection) RegisterSingleton(name string, object AnyQObject) error {
+	if c.started {
+		return fmt.Errorf("Singleton '%s' must be registered before the connection starts", name)
+	} else if len(name) < 1 || strings.ToUpper(string(name[0])) != string(name[0]) {
+		return fmt.Errorf("Singleton name '%s' must start with an uppercase letter", name)
+	} else if err := c.InitObjectId(object, name); err != nil {
+		return err
+	}
+
+	// prevent singletons from ever deactivating
+	object.qObject().refCount++
+	c.singletons[name] = object.qObject()
+	return nil
 }
 
 func (c *Connection) typeIsAcknowledged(t *typeInfo) bool {

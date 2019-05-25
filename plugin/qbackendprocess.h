@@ -12,6 +12,7 @@
 class QBackendProcess : public QBackendConnection, public QQmlParserStatus
 {
     Q_OBJECT
+    Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(QString name READ name WRITE setName NOTIFY nameChanged)
     Q_PROPERTY(QStringList args READ args WRITE setArgs NOTIFY argsChanged)
 

@@ -80,42 +80,78 @@ template<typename T, int I> QJsonObject InstantiableBackendType<T,I>::m_type;
 
 template<typename T> void addInstantiableBackendType(const char *uri, QBackendConnection *c, const QJsonObject &type)
 {
-    static int i;
-    switch (i) {
-    case 0:
-        InstantiableBackendType<T,0>::setupType(uri, c, type);
-        break;
-    case 1:
-        InstantiableBackendType<T,1>::setupType(uri, c, type);
-        break;
-    case 2:
-        InstantiableBackendType<T,2>::setupType(uri, c, type);
-        break;
-    case 3:
-        InstantiableBackendType<T,3>::setupType(uri, c, type);
-        break;
-    case 4:
-        InstantiableBackendType<T,4>::setupType(uri, c, type);
-        break;
-    case 5:
-        InstantiableBackendType<T,5>::setupType(uri, c, type);
-        break;
-    case 6:
-        InstantiableBackendType<T,6>::setupType(uri, c, type);
-        break;
-    case 7:
-        InstantiableBackendType<T,7>::setupType(uri, c, type);
-        break;
-    case 8:
-        InstantiableBackendType<T,8>::setupType(uri, c, type);
-        break;
-    case 9:
-        InstantiableBackendType<T,9>::setupType(uri, c, type);
-        break;
-    default:
-        qCCritical(lcConnection) << "Backend has registered too many instantiable types." << type.value("name").toString() << "discarded.";
-        return;
+    // All of these are compile-time template instantiations; they come at a cost even if not used at runtime.
+    static constexpr int maxTypes = 10;
+    addInstantiableBackendType<T,maxTypes>(uri, c, type);
+}
+
+template<typename T, int I, typename std::enable_if<(I>0), int>::type = 0> void addInstantiableBackendType(const char *uri, QBackendConnection *c, const QJsonObject &type)
+{
+    static bool used;
+    if (used) {
+        addInstantiableBackendType<T,I-1>(uri, c, type);
+    } else {
+        used = true;
+        InstantiableBackendType<T,I>::setupType(uri, c, type);
     }
-    i++;
+}
+
+template<typename T, int I, typename std::enable_if<I==0, int>::type = 0> void addInstantiableBackendType(const char *uri, QBackendConnection *c, const QJsonObject &type)
+{
+    Q_UNUSED(uri);
+    Q_UNUSED(c);
+    qCCritical(lcConnection) << "Backend has registered too many instantiable types. Type" << type.value("name").toString() << "and all future types will be discarded.";
+}
+
+// Even more than with instantiables, there's no reason to require a real type for a singleton.
+// The qmlRegisterSingletonType API, however, doesn't allow for it: the callback to create an
+// instance must be a bare function pointer, which rules out capturing lambdas and anything
+// else that could determine which singleton to create.
+//
+// So as with the instantiable types, back each singleton with an actual static type, effectively
+// creating N (defined at compile time) different functions that can be passed as callbacks.
+template<int I> class SingletonType
+{
+public:
+    static QBackendConnection *c;
+    static QJsonObject objectRef;
+
+    static QJSValue create(QQmlEngine *engine, QJSEngine *scriptEngine)
+    {
+        Q_UNUSED(scriptEngine);
+        c->setQmlEngine(engine);
+        return c->ensureJSObject(objectRef);
+    }
+};
+
+template<int I> QBackendConnection *SingletonType<I>::c;
+template<int I> QJsonObject SingletonType<I>::objectRef;
+
+using SingletonCallback = QJSValue (*)(QQmlEngine*, QJSEngine*);
+
+template<int I, typename std::enable_if<(I>0), int>::type = 0> SingletonCallback createSingleton(QBackendConnection *c, const QJsonObject &object)
+{
+    static bool used;
+    if (used) {
+        return createSingleton<I-1>(c, object);
+    } else {
+        used = true;
+        SingletonType<I>::c = c;
+        SingletonType<I>::objectRef = object;
+        return &SingletonType<I>::create;
+    }
+}
+
+template<int I, typename std::enable_if<I==0, int>::type = 0> SingletonCallback createSingleton(QBackendConnection *c, const QJsonObject &object)
+{
+    Q_UNUSED(c);
+    qCCritical(lcConnection) << "Backend has registered too many singleton types. Object" << object.value("identifier").toString() << "and all future singletons will be discarded.";
+    return nullptr;
+}
+
+SingletonCallback createSingleton(QBackendConnection *c, const QJsonObject &object)
+{
+    static constexpr int max = 10;
+    return createSingleton<max>(c, object);
 }
 

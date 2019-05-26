@@ -215,15 +215,15 @@ void QBackendConnection::registerTypes(const char *uri)
     }
     Q_ASSERT(m_state != ConnectionState::WantVersion);
 
-    // Don't block if we already have types
-    if (m_state == ConnectionState::WantTypes) {
+    // Don't block if we already have registration
+    if (m_state == ConnectionState::WantRegister) {
         QElapsedTimer tm;
-        qCDebug(lcConnection) << "Blocking to initialize creatable types";
+        qCDebug(lcConnection) << "Blocking to register types";
         tm.restart();
 
-        waitForMessage("creatable_types", [](const QJsonObject &msg) { return msg.value("command").toString() == "CREATABLE_TYPES"; });
+        waitForMessage("register", [](const QJsonObject &msg) { return msg.value("command").toString() == "REGISTER"; });
 
-        qCDebug(lcConnection) << "Blocked for" << tm.elapsed() << "ms for creatable types";
+        qCDebug(lcConnection) << "Blocked for" << tm.elapsed() << "ms for type registration";
     }
 
     for (const QJsonValue &v : qAsConst(m_creatableTypes)) {
@@ -269,8 +269,8 @@ void QBackendConnection::registerTypes(const char *uri)
  *   { "command": "VERSION", ... }
  *
  * == Commands ==
- * RTFS. Backend is expected to send VERSION, and CREATABLE_TYPES immediately, in
- * that order, unconditionally.
+ * RTFS. Backend is expected to send VERSION and REGISTER immediately, in that order,
+ * unconditionally.
  */
 
 void QBackendConnection::handleDataReady()
@@ -367,17 +367,17 @@ void QBackendConnection::setState(ConnectionState newState)
     case ConnectionState::WantVersion:
         qCDebug(lcConnection) << "State -- want version.";
         break;
-    case ConnectionState::WantTypes:
+    case ConnectionState::WantRegister:
         Q_ASSERT(oldState == ConnectionState::WantVersion);
-        qCDebug(lcConnection) << "State -- Got version. Want types.";
+        qCDebug(lcConnection) << "State -- Got version. Want type registration.";
         break;
     case ConnectionState::WantEngine:
-        Q_ASSERT(oldState == ConnectionState::WantTypes);
+        Q_ASSERT(oldState == ConnectionState::WantRegister);
         if (m_qmlEngine) {
             // immediately transition
             setState(ConnectionState::Ready);
         } else {
-            qCDebug(lcConnection) << "State -- Got types. Want engine.";
+            qCDebug(lcConnection) << "State -- Got type registration. Want engine.";
         }
         break;
     case ConnectionState::Ready:
@@ -399,11 +399,11 @@ void QBackendConnection::handleMessage(const QJsonObject &cmd)
         qCDebug(lcConnection) << "Queueing handling of " << command << " due to syncResult";
         doDeliver = false;
     } else if (m_state != ConnectionState::Ready) {
-        // VERSION and CREATABLE_TYPES must happen before anything else, and nothing
+        // VERSION and REGISTER must happen before anything else, and nothing
         // else could be handled until there is a QML engine. Queue all other messages.
         if (m_state == ConnectionState::WantVersion && command == "VERSION")
             doDeliver = true;
-        else if (m_state == ConnectionState::WantTypes && command == "CREATABLE_TYPES")
+        else if (m_state == ConnectionState::WantRegister && command == "REGISTER")
             doDeliver = true;
         else
             doDeliver = false;
@@ -427,9 +427,9 @@ void QBackendConnection::handleMessage(const QJsonObject &cmd)
         Q_ASSERT(m_state == ConnectionState::WantVersion);
         m_version = cmd.value("version").toInt();
         qCInfo(lcConnection) << "Connected to backend version" << m_version;
-        setState(ConnectionState::WantTypes);
-    } else if (command == "CREATABLE_TYPES") {
-        Q_ASSERT(m_state == ConnectionState::WantTypes);
+        setState(ConnectionState::WantRegister);
+    } else if (command == "REGISTER") {
+        Q_ASSERT(m_state == ConnectionState::WantRegister);
         m_creatableTypes = cmd.value("types").toArray();
         m_singletons = cmd.value("singletons").toObject();
         setState(ConnectionState::WantEngine);

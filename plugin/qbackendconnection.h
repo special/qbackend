@@ -100,8 +100,8 @@ private:
     enum class ConnectionState {
         // Pre-VERSION
         WantVersion,
-        // Pre-CREATABLE_TYPES
-        WantTypes,
+        // Pre-REGISTER
+        WantRegister,
         // Want a QML engine pointer
         WantEngine,
         // Ready to handle messages

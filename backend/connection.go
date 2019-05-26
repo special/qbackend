@@ -97,7 +97,7 @@ func (c *Connection) handle() {
 		Version int `json:"version"`
 	}{messageBase{"VERSION"}, 2})
 
-	// CREATABLE_TYPES
+	// REGISTER
 	{
 		types := make([]*typeInfo, 0, len(c.instantiable))
 		for _, t := range c.instantiable {
@@ -109,7 +109,7 @@ func (c *Connection) handle() {
 			Types      []*typeInfo         `json:"types"`
 			Singletons map[string]*QObject `json:"singletons"`
 		}{
-			messageBase{"CREATABLE_TYPES"},
+			messageBase{"REGISTER"},
 			types,
 			c.singletons,
 		})

@@ -35,9 +35,9 @@
 //  onClicked: { demo.run(); demo.steps = [] }
 //
 // QObjects are used by passing them (by pointer) to the frontend in properties, signals, and return values of
-// other objects. They do not need to be initialized explicitly, and they will be garbage collected normally once
-// there are no remaining references to the object from Go or QML. Generally, there is no need to treat them
-// differently from any other type.
+// other objects, or by registering singleton or instantiable types. They do not need to be initialized explicitly,
+// and they will be garbage collected normally once there are no remaining references to the object from Go or
+// QML. Generally, there is no need to treat them differently from any other type.
 //
 // Data Models
 //
@@ -45,9 +45,34 @@
 // An object which embeds Model, implements the ModelDataSource interface, and calls Model's methods for changes
 // to data is usable as a model anywhere in QML.
 //
+// Singletons
+//
+// Instances of QObject types can be registered during startup as singletons. These singleton objects are
+// available in QML from startup as their uppercase name, like any normal QML singleton, and are never deleted.
+// In all other ways, they behave like any other object.
+//
+//  // Go
+//  type Demo struct {
+//      qbackend.QObject
+//      Value int
+//  }
+//
+//  demo := &Demo{Value: 12345}
+//  qb.RegisterSingleton("Demo", demo)
+//
+//  // QML
+//  import Crimson.QBackend 1.0
+//
+//  Text {
+//      text: "Demo value: " + Demo.value
+//  }
+//
+// To interact with the backend, there must be at least one singleton or instantiable type (below). These are
+// the entry points of your backend API.
+//
 // Instantiable Types
 //
-// The objectss referenced so far are all created from the Go backend and given to the QML frontend. QML could
+// The objects referenced so far are all created from the Go backend and given to the QML frontend. QML could
 // call a function on an existing object to get a new object, but couldn't create anything declaratively. For
 // this, we have instantiable types.
 //

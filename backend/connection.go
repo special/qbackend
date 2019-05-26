@@ -421,6 +421,10 @@ func (c *Connection) sendEmit(obj *QObject, method string, data []interface{}) e
 // RegisterTypeFactory registers a type to be creatable from QML. Instances of these types
 // can be created, assigned properties, and used declaratively like any other QML type.
 //
+// It is _not_ necessary to register QObject types that are simply given to QML. This
+// registration allows new instances of a type to be created within QML in declarative
+// syntax.
+//
 // The factory function is called to create a new instance. The QObject 't' should be a
 // pointer to the zero value of the type (&Type{}). This is used only for type definition,
 // and its value has no meaning. The factory function must always return this same type.
@@ -457,6 +461,10 @@ func (c *Connection) RegisterTypeFactory(name string, t AnyQObject, factory func
 // RegisterType registers a type to be creatable from QML. Instances of these types
 // can be created, assigned properties, and used declaratively like any other QML type.
 //
+// It is _not_ necessary to register QObject types that are simply given to QML. This
+// registration allows new instances of a type to be created within QML in declarative
+// syntax.
+//
 // New instances are copied from the template object, including its values. This means
 // you can set fields for the instantiated type that are different from the zero value.
 // This is equivalent to a Go value assignment; it does not perform a deep copy.
@@ -478,6 +486,14 @@ func (c *Connection) RegisterType(name string, template AnyQObject) error {
 	return c.RegisterTypeFactory(name, template, factory)
 }
 
+// RegisterSingleton makes an object available globally in QML as a singleton. These
+// objects always exist and can be used by their name anywhere within QML.
+//
+// Singletons must be registered before the connection is started, and the name must
+// start with an uppercase letter, which is how they appear within QML, and must not
+// conflict with any other type.
+//
+// A singleton object's ID is its name. It can be found with Connection.Object().
 func (c *Connection) RegisterSingleton(name string, object AnyQObject) error {
 	if c.started {
 		return fmt.Errorf("Singleton '%s' must be registered before the connection starts", name)

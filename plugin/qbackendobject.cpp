@@ -74,11 +74,6 @@ void QBackendObject::componentComplete()
     d->componentComplete();
 }
 
-void QBackendObject::resetData(const QJsonObject &data)
-{
-    d->resetData(data);
-}
-
 BackendObjectPrivate::BackendObjectPrivate(QObject *object, QBackendConnection *connection, const QByteArray &identifier)
     : QBackendRemoteObject(object)
     , m_object(object)
@@ -181,8 +176,6 @@ void BackendObjectPrivate::methodReturned(const QByteArray& returnId, const QJso
 void BackendObjectPrivate::classBegin()
 {
     // If the connection doesn't have an engine associated yet, give it the one from this object.
-    // This happens in the singleton plugin when an instantiable type is created before anything
-    // references the root object singleton (which also does this initialization).
     if (!m_connection->qmlEngine()) {
         qCDebug(lcObject) << "setting engine" << qmlEngine(m_object) << "for connection at object instantiation";
         m_connection->setQmlEngine(qmlEngine(m_object));

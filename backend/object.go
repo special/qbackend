@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"reflect"
 	"time"
-
-	uuid "github.com/satori/go.uuid"
 )
 
 const (
@@ -163,11 +161,9 @@ const (
 // declaratively, like any other native type. See that method and the package
 // documentation for details.
 type QObject struct {
-	c  *Connection
-	id string
-
-	ref      bool
-	inactive bool
+	c   *Connection
+	id  string
+	ref bool
 
 	object   AnyQObject
 	typeInfo *typeInfo
@@ -214,62 +210,45 @@ func asQObject(obj interface{}) (*QObject, bool) {
 	}
 }
 
-func initObject(object AnyQObject, c *Connection) (*QObject, error) {
-	u, _ := uuid.NewV4()
-	return initObjectId(object, c, u.String())
-}
-
-// XXX split up registration and conenction a bit so reg can happen from anything?
-func initObjectId(object AnyQObject, c *Connection, id string) (*QObject, error) {
-	var newObject bool
+// Initialize sets up signals and performs other initialization of a QObject
+// type. It's usually not necessary to call Initialize explicitly, because
+// this happens automatically when an object is used. All methods of QObject
+// can be used without any initialization.
+//
+// Initialize assigns functions to the object's signals so they can be called
+// directly to emit that signal. This is the main reason to call Initialize
+// manually.
+//
+// If the object implements QObjectHasInit, its method is called here.
+//
+// There is no effect and no error if the object was already initialized.
+func Initialize(object AnyQObject) error {
 	q := object.qObject()
+	if q.object != nil {
+		return nil
+	}
 
-	if q.id == "" {
-		newObject = true
-		*q = QObject{
-			c:      c,
-			id:     id,
-			object: object,
-		}
-
-		value := reflect.Indirect(reflect.ValueOf(object))
-		if ti, err := parseType(value.Type()); err != nil {
-			return nil, err
-		} else {
-			q.typeInfo = ti
-		}
-
-		q.initSignals()
+	value := reflect.Indirect(reflect.ValueOf(object))
+	if ti, err := parseType(value.Type()); err != nil {
+		return err
 	} else {
-		if !q.inactive {
-			// Active object, nothing needs to happen here
-			return q, nil
-		}
-		// Reactivating object (after collectObjects)
-		q.inactive = false
+		q.typeInfo = ti
 	}
 
-	// Set grace period to stop the object from being removed prematurely
-	q.refsChanged()
-
-	// Register with connection
-	if c != nil {
-		c.addObject(q)
+	q.object = object
+	q.initSignals()
+	if io, ok := object.(QObjectHasInit); ok {
+		io.InitObject()
 	}
-
-	// Call InitObject for new objects if implemented
-	if newObject {
-		if io, ok := object.(QObjectHasInit); ok {
-			io.InitObject()
-		}
-	}
-
-	return q, nil
+	return nil
 }
 
 func (q *QObject) initSignals() {
-	v := reflect.ValueOf(q.object).Elem()
+	if q.object == nil || q.typeInfo == nil {
+		panic("QObject.initSignals called for an uninitialized object")
+	}
 
+	v := reflect.ValueOf(q.object).Elem()
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		if typeShouldIgnoreField(v.Type().Field(i)) || field.Type().Kind() != reflect.Func || !field.IsNil() {
@@ -288,8 +267,6 @@ func (q *QObject) initSignals() {
 		})
 		field.Set(f)
 	}
-
-	return
 }
 
 // Call after when the reference grace period should reset
@@ -480,7 +457,7 @@ func (o *QObject) Changed(property string) {
 // ResetProperties is effectively identical to emitting the Changed
 // signal for all properties of the object.
 func (o *QObject) ResetProperties() {
-	if !o.ref {
+	if !o.ref || o.c == nil {
 		return
 	}
 	o.c.sendUpdate(o)
@@ -499,6 +476,10 @@ func (o *QObject) ResetProperties() {
 // and this function returns the typeinfo that is appropriate when an object is
 // referenced from another object.
 func (o *QObject) MarshalJSON() ([]byte, error) {
+	if o.c == nil {
+		panic("QObject.MarshalJSON called without a connection assigned")
+	}
+
 	var desc interface{}
 
 	// If the client has previously acknowledged an object with this type, there is
@@ -599,9 +580,9 @@ func (o *QObject) initObjectsUnder(v reflect.Value) error {
 
 	case reflect.Struct:
 		if obj, ok := v.Addr().Interface().(AnyQObject); ok {
-			// Valid QObject, possibly just initialized. Stop recursion here
-			_, err := initObject(obj, o.c)
-			return err
+			// Initialize the object and set the connection/id if necessary,
+			// but don't recurse any further.
+			return o.c.activateObject(obj)
 		}
 
 		// Not a QObject

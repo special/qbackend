@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	uuid "github.com/satori/go.uuid"
 )
 
 type Connection struct {
@@ -263,8 +265,10 @@ func (c *Connection) Process() error {
 				break
 			} else {
 				obj := t.Factory()
-				impl, _ := initObjectId(obj, c, identifier)
+				impl = obj.qObject()
+				impl.id = identifier
 				impl.ref = true
+				c.activateObject(obj)
 			}
 
 		case "INVOKE":
@@ -321,19 +325,30 @@ func (c *Connection) ProcessSignal() <-chan struct{} {
 	return c.processSignal
 }
 
-func (c *Connection) addObject(obj *QObject) {
-	q := obj.qObject()
-	id := q.Identifier()
-	if eObj, exists := c.objects[id]; exists {
-		if q == eObj {
-			return
-		} else {
-			c.fatal("registered different object with duplicate identifier %s", id)
-			return
-		}
+func (c *Connection) activateObject(obj AnyQObject) error {
+	if err := Initialize(obj); err != nil {
+		return err
 	}
 
-	c.objects[id] = q
+	q := obj.qObject()
+	if q.c != nil {
+		if q.c != c {
+			// This situation is really not supported at all.
+			return errors.New("object is already claimed by a different connection")
+		}
+		q.refsChanged()
+		return nil
+	}
+	q.c = c
+
+	if q.id == "" {
+		u, _ := uuid.NewV4()
+		q.id = u.String()
+	}
+
+	c.objects[q.id] = q
+	q.refsChanged()
+	return nil
 }
 
 // Remove objects that are not referenced by the client, and have passed
@@ -345,43 +360,24 @@ func (c *Connection) collectObjects() {
 		impl, _ := asQObject(obj)
 		if !impl.ref && time.Now().After(impl.refGraceTime) {
 			delete(c.objects, id)
-			impl.inactive = true
+			impl.c = nil
 		}
 	}
 }
 
-// Object returns a registered QObject by its identifier
-func (c *Connection) Object(name string) AnyQObject {
-	return c.objects[name].object
-}
-
-// InitObject explicitly initializes a QObject, assigning an identifier and
-// setting up signal functions.
+// Object returns an active QObject by its identifier.
 //
-// It's not necessary to InitObject manually. Objects are automatically
-// initialized as they are encountered in properties and parameters.
-//
-// InitObject can be useful to guarantee that a QObject and its signals are
-// non-nil and can be called, even when it may have not yet been sent to the
-// client.
-func (c *Connection) InitObject(obj AnyQObject) error {
-	_, err := initObject(obj, c)
-	return err
-}
-
-// InitObjectId is equvialent to InitObject, but takes an identifier for the
-// object. Nothing is changed if the object has already been initialized.
-//
-// In some cases, it's useful to look up an object by a known/composed name,
-// because holding a reference to that object would prevent garbage collection.
-// This is particularly true when writing wrapper types where the object is
-// uniquely wrapping another non-QObject type.
-func (c *Connection) InitObjectId(obj AnyQObject, id string) error {
-	if eobj, exists := c.objects[id]; exists && obj != eobj {
-		return errors.New("object id in use")
+// Active objects are known or could be known to the client, or are kept
+// alive for other reasons. When the client doesn't have any reference to
+// an object, it becomes inactive and Connection no longer refers to it.
+// Inactive objects could be garbage collected, or could be re-activated
+// if they're sent to the client again.
+func (c *Connection) Object(id string) AnyQObject {
+	if obj, ok := c.objects[id]; ok {
+		return obj
+	} else {
+		return nil
 	}
-	_, err := initObjectId(obj, c, id)
-	return err
 }
 
 func (c *Connection) sendUpdate(impl *QObject) error {
@@ -498,14 +494,18 @@ func (c *Connection) RegisterSingleton(name string, object AnyQObject) error {
 		return fmt.Errorf("Singleton '%s' must be registered before the connection starts", name)
 	} else if len(name) < 1 || strings.ToUpper(string(name[0])) != string(name[0]) {
 		return fmt.Errorf("Singleton name '%s' must start with an uppercase letter", name)
-	} else if err := c.InitObjectId(object, name); err != nil {
+	} else if _, exists := c.singletons[name]; exists {
+		return fmt.Errorf("Singleton '%s' is already registered", name)
+	}
+
+	q := object.qObject()
+	q.id = name
+	q.ref = true
+	if err := c.activateObject(object); err != nil {
 		return err
 	}
 
-	// XXX fix singletons
-	// prevent singletons from ever deactivating
-	//object.qObject().refCount++
-	c.singletons[name] = object.qObject()
+	c.singletons[name] = q
 	return nil
 }
 

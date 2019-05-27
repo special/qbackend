@@ -94,9 +94,7 @@ func (m *Model) InitObject() {
 		Model:     m,
 		RoleNames: data.RoleNames(),
 	}
-
-	// Initialize ModelAPI right away as well
-	m.Connection().InitObject(m.ModelAPI)
+	Initialize(m.ModelAPI)
 }
 
 func (m *modelAPI) getRows(start, count, batchSize int) ([]interface{}, int) {

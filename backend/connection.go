@@ -336,15 +336,14 @@ func (c *Connection) addObject(obj *QObject) {
 	c.objects[id] = q
 }
 
-// Remove objects that have no property references, are not referenced by
-// the client, and have passed their grace period from the map, allowing
-// the GC to collect them. Under these conditions, there is no valid way
-// for a client to reference the object. If the object is used again, it
-// will be re-added under the same ID.
+// Remove objects that are not referenced by the client, and have passed
+// their grace period from the map, allowing the GC to collect them. Under
+// these conditions, there is no valid way for a client to reference the
+// object. If the object is used again, it will be re-added under the same ID.
 func (c *Connection) collectObjects() {
 	for id, obj := range c.objects {
 		impl, _ := asQObject(obj)
-		if !impl.ref && impl.refCount < 1 && time.Now().After(impl.refGraceTime) {
+		if !impl.ref && time.Now().After(impl.refGraceTime) {
 			delete(c.objects, id)
 			impl.inactive = true
 		}
@@ -503,8 +502,9 @@ func (c *Connection) RegisterSingleton(name string, object AnyQObject) error {
 		return err
 	}
 
+	// XXX fix singletons
 	// prevent singletons from ever deactivating
-	object.qObject().refCount++
+	//object.qObject().refCount++
 	c.singletons[name] = object.qObject()
 	return nil
 }

@@ -163,18 +163,15 @@ const (
 // declaratively, like any other native type. See that method and the package
 // documentation for details.
 type QObject struct {
-	c        *Connection
-	id       string
+	c  *Connection
+	id string
+
 	ref      bool
 	inactive bool
 
 	object   AnyQObject
 	typeInfo *typeInfo
 
-	// Number of other objects that have a marshaled reference to this one
-	refCount int
-	// object id -> count for references to other objects in our properties
-	refChildren map[string]int
 	// Keep object alive until refGraceTime
 	refGraceTime time.Time
 }
@@ -230,10 +227,9 @@ func initObjectId(object AnyQObject, c *Connection, id string) (*QObject, error)
 	if q.id == "" {
 		newObject = true
 		*q = QObject{
-			c:           c,
-			id:          id,
-			object:      object,
-			refChildren: make(map[string]int),
+			c:      c,
+			id:     id,
+			object: object,
 		}
 
 		value := reflect.Indirect(reflect.ValueOf(object))
@@ -296,9 +292,9 @@ func (q *QObject) initSignals() {
 	return
 }
 
-// Call after changing o.refCount or o.Ref, or when the grace period should reset
+// Call after when the reference grace period should reset
 func (o *QObject) refsChanged() {
-	if !o.ref && o.refCount < 1 {
+	if !o.ref {
 		o.refGraceTime = time.Now().Add(objectRefGracePeriod)
 	}
 }
@@ -453,7 +449,7 @@ func (o *QObject) Emit(signal string, args ...interface{}) {
 	// These arguments go through a plain MarshalJSON from the connection, since they
 	// are not being sent as part of an object. The scan to initialize QObjects in
 	// this tree needs to happen here.
-	if _, err := o.initObjectsUnder(reflect.ValueOf(args)); err != nil {
+	if err := o.initObjectsUnder(reflect.ValueOf(args)); err != nil {
 		// XXX report error
 		return
 	}
@@ -527,7 +523,7 @@ func (o *QObject) MarshalJSON() ([]byte, error) {
 		desc,
 	}
 
-	// Marshaling typeinfo for an object resets the refcounting grace period.
+	// Marshaling typeinfo for an object resets the reference grace period.
 	// This ensures that the client has enough time to reference an object from
 	// e.g. a signal parameter before it could be cleaned up.
 	o.refsChanged()
@@ -552,42 +548,11 @@ func (o *QObject) MarshalJSON() ([]byte, error) {
 func (o *QObject) marshalObject() (map[string]interface{}, error) {
 	data := make(map[string]interface{})
 
-	// Zero out all child ref counts
-	for k, _ := range o.refChildren {
-		o.refChildren[k] = 0
-	}
-
 	value := reflect.Indirect(reflect.ValueOf(o.object))
 	for name, index := range o.typeInfo.propertyFieldIndex {
 		field := value.FieldByIndex(index)
-		if refs, err := o.initObjectsUnder(field); err != nil {
+		if err := o.initObjectsUnder(field); err != nil {
 			return nil, err
-		} else {
-			// Add references from refs
-			for _, id := range refs {
-				if _, existing := o.refChildren[id]; !existing {
-					// Reference to an object that was not referenced before
-					if obj := o.c.Object(id); obj != nil {
-						impl, _ := asQObject(obj)
-						impl.refCount++
-						o.refsChanged()
-					}
-				}
-				o.refChildren[id]++
-			}
-
-			// Dereference objects that are no longer referenced here
-			for k, v := range o.refChildren {
-				if v > 0 {
-					continue
-				}
-				delete(o.refChildren, k)
-				if obj := o.c.Object(k); obj != nil {
-					impl, _ := asQObject(obj)
-					impl.refCount--
-					o.refsChanged()
-				}
-			}
 		}
 		data[name] = field.Interface()
 	}
@@ -598,19 +563,14 @@ func (o *QObject) marshalObject() (map[string]interface{}, error) {
 // initObjectsUnder scans a Value for references to any QObject types, and
 // initializes these if necessary. This scan is recursive through any types
 // other than QObject itself.
-//
-// This scan also maintains the list of object IDs referenced within this
-// object, which is returned here and stored as refChildren.
-func (o *QObject) initObjectsUnder(v reflect.Value) ([]string, error) {
+func (o *QObject) initObjectsUnder(v reflect.Value) error {
 	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
 		v = v.Elem()
 		if !v.IsValid() {
 			// nil pointer/interface
-			return nil, nil
+			return nil
 		}
 	}
-
-	var refs []string
 
 	switch v.Kind() {
 	case reflect.Array:
@@ -618,38 +578,30 @@ func (o *QObject) initObjectsUnder(v reflect.Value) ([]string, error) {
 	case reflect.Slice:
 		elemType := v.Type().Elem()
 		if !typeCouldContainQObject(elemType) {
-			return nil, nil
+			return nil
 		}
 		for i := 0; i < v.Len(); i++ {
-			if elemRefs, err := o.initObjectsUnder(v.Index(i)); err != nil {
-				return nil, err
-			} else {
-				refs = append(refs, elemRefs...)
+			if err := o.initObjectsUnder(v.Index(i)); err != nil {
+				return err
 			}
 		}
 
 	case reflect.Map:
 		elemType := v.Type().Elem()
 		if !typeCouldContainQObject(elemType) {
-			return nil, nil
+			return nil
 		}
 		for _, key := range v.MapKeys() {
-			if elemRefs, err := o.initObjectsUnder(v.MapIndex(key)); err != nil {
-				return nil, err
-			} else {
-				refs = append(refs, elemRefs...)
+			if err := o.initObjectsUnder(v.MapIndex(key)); err != nil {
+				return err
 			}
 		}
 
 	case reflect.Struct:
 		if obj, ok := v.Addr().Interface().(AnyQObject); ok {
-			if q, err := initObject(obj, o.c); err == nil {
-				// Valid QObject, possibly just initialized. Stop recursion here
-				refs = append(refs, q.id)
-				return refs, nil
-			} else {
-				return nil, err
-			}
+			// Valid QObject, possibly just initialized. Stop recursion here
+			_, err := initObject(obj, o.c)
+			return err
 		}
 
 		// Not a QObject
@@ -659,16 +611,14 @@ func (o *QObject) initObjectsUnder(v reflect.Value) ([]string, error) {
 			}
 			field := v.Field(i)
 			if typeCouldContainQObject(field.Type()) {
-				if elemRefs, err := o.initObjectsUnder(field); err != nil {
-					return nil, err
-				} else {
-					refs = append(refs, elemRefs...)
+				if err := o.initObjectsUnder(field); err != nil {
+					return err
 				}
 			}
 		}
 	}
 
-	return refs, nil
+	return nil
 }
 
 func typeCouldContainQObject(t reflect.Type) bool {

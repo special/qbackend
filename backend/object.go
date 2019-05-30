@@ -6,12 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"time"
 )
 
-const (
-	objectRefGracePeriod = 5 * time.Second
-)
 
 // Add names of any functions in QObject to the blacklist in type.go
 
@@ -161,15 +157,18 @@ const (
 // declaratively, like any other native type. See that method and the package
 // documentation for details.
 type QObject struct {
-	c   *Connection
-	id  string
-	ref bool
+	c  *Connection
+	id string
+
+	// Client holds an explicit OBJECT_REF
+	clientRef bool
+	// Connection holds a reference for objects on the wire until the next sync point
+	syncRef bool
+	// Connection also holds objects until the previous sync finishes
+	syncPendingRef bool
 
 	object   AnyQObject
 	typeInfo *typeInfo
-
-	// Keep object alive until refGraceTime
-	refGraceTime time.Time
 }
 
 // AnyQObject is an interface to receive any type usable as a QObject
@@ -269,13 +268,6 @@ func (q *QObject) initSignals() {
 	}
 }
 
-// Call after when the reference grace period should reset
-func (o *QObject) refsChanged() {
-	if !o.ref {
-		o.refGraceTime = time.Now().Add(objectRefGracePeriod)
-	}
-}
-
 // XXX Are these functions actually wanted?
 
 // Connection returns the connection associated with this object.
@@ -290,11 +282,11 @@ func (o *QObject) Identifier() string {
 	return o.id
 }
 
-// Referenced returns true when there is a client-side reference to
+// Referenced is true when there could be a client-side reference to
 // this object. When false, all signals are ignored and the object
-// will not be encoded.
+// will not be marshaled.
 func (o *QObject) Referenced() bool {
-	return o.ref
+	return o.c != nil && (o.clientRef || o.syncRef || o.syncPendingRef)
 }
 
 // Invoke calls the named method of the object, converting or
@@ -419,7 +411,7 @@ func (o *QObject) invoke(methodName string, inArgs ...interface{}) ([]interface{
 // Emit emits the named signal asynchronously. The signal must be
 // defined within the object and parameters must match exactly.
 func (o *QObject) Emit(signal string, args ...interface{}) {
-	if !o.ref {
+	if !o.Referenced() {
 		return
 	}
 
@@ -435,7 +427,7 @@ func (o *QObject) Emit(signal string, args ...interface{}) {
 }
 
 func (o *QObject) emitReflected(signal string, args []reflect.Value) {
-	if !o.ref {
+	if !o.Referenced() {
 		return
 	}
 	unwrappedArgs := make([]interface{}, 0, len(args))
@@ -457,7 +449,7 @@ func (o *QObject) Changed(property string) {
 // ResetProperties is effectively identical to emitting the Changed
 // signal for all properties of the object.
 func (o *QObject) ResetProperties() {
-	if !o.ref || o.c == nil {
+	if !o.Referenced() {
 		return
 	}
 	o.c.sendUpdate(o)
@@ -503,11 +495,6 @@ func (o *QObject) MarshalJSON() ([]byte, error) {
 		o.id,
 		desc,
 	}
-
-	// Marshaling typeinfo for an object resets the reference grace period.
-	// This ensures that the client has enough time to reference an object from
-	// e.g. a signal parameter before it could be cleaned up.
-	o.refsChanged()
 
 	return json.Marshal(obj)
 }

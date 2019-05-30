@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 
 	uuid "github.com/satori/go.uuid"
 )
@@ -27,6 +26,9 @@ type Connection struct {
 	started       bool
 	processSignal chan struct{}
 	queue         chan []byte
+
+	syncSerial  int
+	syncObjects int
 }
 
 // NewConnection creates a new connection from an open stream. To use the
@@ -63,6 +65,10 @@ type instantiableType struct {
 type messageBase struct {
 	Command string `json:"command"`
 }
+
+// Number of object references after which a SYNC is sent to remove any
+// unreferenced objects. 200 chosen at random.
+const objectSyncThreshold = 200
 
 func (c *Connection) fatal(fmsg string, p ...interface{}) {
 	msg := fmt.Sprintf(fmsg, p...)
@@ -207,14 +213,13 @@ func (c *Connection) Run() error {
 // connection.
 func (c *Connection) Process() error {
 	c.ensureHandler()
-	lastCollection := time.Now()
 
 	for {
 		var data []byte
 		select {
 		case data = <-c.queue:
 		default:
-			return c.err
+			break
 		}
 
 		var msg map[string]interface{}
@@ -225,14 +230,12 @@ func (c *Connection) Process() error {
 		}
 
 		identifier := msg["identifier"].(string)
-		obj, objExists := c.objects[identifier]
-		impl, _ := asQObject(obj)
+		impl, objExists := c.objects[identifier]
 
 		switch msg["command"] {
 		case "OBJECT_REF":
 			if objExists {
-				impl.ref = true
-				impl.refsChanged()
+				impl.clientRef = true
 				// Record that the client has acknowledged an object of this type
 				c.knownTypes[impl.typeInfo.Name] = struct{}{}
 			} else {
@@ -241,11 +244,16 @@ func (c *Connection) Process() error {
 
 		case "OBJECT_DEREF":
 			if objExists {
-				impl.ref = false
-				impl.refsChanged()
+				impl.clientRef = false
+				if !impl.syncRef && !impl.syncPendingRef {
+					c.removeObject(identifier, impl)
+				}
 			} else {
 				c.warn("deref of unknown object %s", identifier)
 			}
+
+		case "SYNC_ACK":
+			c.syncAck(msg["serial"].(int))
 
 		case "OBJECT_QUERY":
 			if objExists {
@@ -267,7 +275,7 @@ func (c *Connection) Process() error {
 				obj := t.Factory()
 				impl = obj.qObject()
 				impl.id = identifier
-				impl.ref = true
+				impl.clientRef = true
 				c.activateObject(obj)
 			}
 
@@ -309,14 +317,15 @@ func (c *Connection) Process() error {
 		default:
 			c.fatal("unknown command %s", msg["command"])
 		}
-
-		// Scan references for garbage collection at most every 5 seconds
-		if now := time.Now(); now.Sub(lastCollection) >= 5*time.Second {
-			c.collectObjects()
-			lastCollection = now
-		}
 	}
 
+	if c.err != nil {
+		return c.err
+	}
+
+	if c.syncObjects > objectSyncThreshold {
+		c.syncClient()
+	}
 	return nil
 }
 
@@ -336,33 +345,68 @@ func (c *Connection) activateObject(obj AnyQObject) error {
 			// This situation is really not supported at all.
 			return errors.New("object is already claimed by a different connection")
 		}
-		q.refsChanged()
-		return nil
-	}
-	q.c = c
-
-	if q.id == "" {
-		u, _ := uuid.NewV4()
-		q.id = u.String()
+	} else {
+		q.c = c
+		if q.id == "" {
+			u, _ := uuid.NewV4()
+			q.id = u.String()
+		}
 	}
 
 	c.objects[q.id] = q
-	q.refsChanged()
+	if !q.syncRef {
+		// Even if there is a clientRef, syncRef is needed to avoid a race when there
+		// is a deref in flight.
+		q.syncRef = true
+		c.syncObjects++
+	}
 	return nil
 }
 
-// Remove objects that are not referenced by the client, and have passed
-// their grace period from the map, allowing the GC to collect them. Under
-// these conditions, there is no valid way for a client to reference the
-// object. If the object is used again, it will be re-added under the same ID.
-func (c *Connection) collectObjects() {
-	for id, obj := range c.objects {
-		impl, _ := asQObject(obj)
-		if !impl.ref && time.Now().After(impl.refGraceTime) {
-			delete(c.objects, id)
-			impl.c = nil
+func (c *Connection) syncClient() {
+	if c.syncSerial != 0 || c.syncObjects == 0 {
+		return
+	}
+
+	for _, q := range c.objects {
+		if q.syncRef {
+			q.syncRef = false
+			q.syncPendingRef = true
 		}
 	}
+
+	c.syncSerial++
+	c.syncObjects = 0
+	c.sendMessage(struct {
+		messageBase
+		Serial int `json:"serial"`
+	}{
+		messageBase{"SYNC"},
+		c.syncSerial,
+	})
+}
+
+func (c *Connection) syncAck(serial int) {
+	if serial != c.syncSerial || c.syncSerial == 0 {
+		c.fatal("Incorrect SYNC serial %d (expected %d)", serial, c.syncSerial)
+		return
+	}
+	c.syncSerial = 0
+
+	for id, q := range c.objects {
+		if q.syncPendingRef {
+			q.syncPendingRef = false
+		}
+		if !q.clientRef && !q.syncRef {
+			c.removeObject(id, q)
+		}
+	}
+}
+
+func (c *Connection) removeObject(id string, q *QObject) {
+	delete(c.objects, id)
+	q.clientRef, q.syncRef, q.syncPendingRef = false, false, false
+	q.c = nil
 }
 
 // Object returns an active QObject by its identifier.
@@ -500,7 +544,7 @@ func (c *Connection) RegisterSingleton(name string, object AnyQObject) error {
 
 	q := object.qObject()
 	q.id = name
-	q.ref = true
+	q.clientRef = true
 	if err := c.activateObject(object); err != nil {
 		return err
 	}

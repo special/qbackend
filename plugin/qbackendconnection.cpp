@@ -433,6 +433,16 @@ void QBackendConnection::handleMessage(const QJsonObject &cmd)
         m_creatableTypes = cmd.value("types").toArray();
         m_singletons = cmd.value("singletons").toObject();
         setState(ConnectionState::WantEngine);
+    } else if (command == "SYNC") {
+        if (m_pendingMessages.isEmpty()) {
+            write(QJsonObject{
+                  {"command", "SYNC_ACK"},
+                  {"serial", cmd.value("serial").toInt()}
+            });
+        } else {
+            m_pendingMessages.append(cmd);
+            return;
+        }
     } else if (command == "OBJECT_RESET") {
         QByteArray identifier = cmd.value("identifier").toString().toUtf8();
         auto obj = m_objects.value(identifier);
@@ -588,6 +598,8 @@ void QBackendConnection::addObjectProxy(const QByteArray& identifier, QBackendRe
     qCDebug(lcConnection) << "Creating remote object handler " << identifier << " on connection " << this << " for " << proxy;
     m_objects.insert(identifier, proxy);
 
+    // XXX Technically, it's not necessary to send a REF immediately; it just has to be sent before the next SYNC_ACK.
+    // That could be used to batch these.
     write(QJsonObject{
           {"command", "OBJECT_REF"},
           {"identifier", QString::fromUtf8(identifier)},

@@ -353,7 +353,11 @@ func (c *Connection) collectObjects() {
 
 // Object returns a registered QObject by its identifier
 func (c *Connection) Object(name string) AnyQObject {
-	return c.objects[name].object
+	if q, ok := c.objects[name]; ok {
+		return q.object
+	} else {
+		return nil
+	}
 }
 
 // InitObject explicitly initializes a QObject, assigning an identifier and

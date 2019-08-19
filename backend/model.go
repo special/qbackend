@@ -1,5 +1,10 @@
 package qbackend
 
+// XXX Is there any reason for Model to _be_ the object, versus being a
+// special thing placed into the object?
+// XXX ^ trying this; we'll have "model is a field by the name Model"?
+// kinda weird and magical..
+
 // Model is embedded in another type instead of QObject to create
 // a data model, represented as a QAbstractItemModel to the client.
 //
@@ -11,25 +16,24 @@ package qbackend
 // client of the change.
 type Model struct {
 	QObject
+
+	Data ModelData
+
 	// ModelAPI is an internal object for the model data API
 	ModelAPI *modelAPI `json:"_qb_model"`
 }
 
-// Types embedding Model must implement ModelDataSource to provide data
-type ModelDataSource interface {
+// XXX eh, not sure what the point is for any of this
+
+type ModelData interface {
 	Row(row int) interface{}
 	RowCount() int
 	RoleNames() []string
 }
 
-// Types embedding Model _may_ implement ModelDataSourceRows to provide
-// a list of all rows more efficiently.
-//
-// If the implementation of Rows() requires copying to a new slice, it may
-// be more efficient to not implement this function.
-type ModelDataSourceRows interface {
-	ModelDataSource
-	Rows() []interface{}
+type ModelDataRows interface {
+	ModelData
+	Rows(i, j int) []interface{}
 }
 
 // modelAPI implements the internal qbackend API for model data; see QBackendModel from the plugin
@@ -66,28 +70,8 @@ func (m *modelAPI) SetBatchSize(size int) {
 	m.Changed("BatchSize")
 }
 
-func (m *Model) dataSource() ModelDataSource {
-	// The QObject interface is embedded in Model, so it can be accessed from here,
-	// but Model is embedded in the app's model type as well, and that is the type
-	// that is initialized for the QObject.
-	//
-	// This enables a neat trick: we can access the QObject here, and its Object
-	// field will point back to the app's type, which is usually not available
-	// from embedded types.
-	impl, _ := asQObject(m)
-	if impl == nil {
-		return nil
-	}
-
-	if ds, ok := impl.object.(ModelDataSource); ok {
-		return ds
-	} else {
-		// XXX Object must implement ModelRowSource; warn/error/panic/something
-		return nil
-	}
-}
-
 func (m *Model) InitObject() {
+	// XXX issues
 	data := m.dataSource()
 
 	m.ModelAPI = &modelAPI{
@@ -100,7 +84,7 @@ func (m *Model) InitObject() {
 }
 
 func (m *modelAPI) getRows(start, count, batchSize int) ([]interface{}, int) {
-	data := m.Model.dataSource()
+	data := m.Model.Data
 	if data == nil {
 		return []interface{}{}, 0
 	}
@@ -127,8 +111,8 @@ func (m *modelAPI) getRows(start, count, batchSize int) ([]interface{}, int) {
 		count = batchSize
 	}
 
-	if s, ok := data.(ModelDataSourceRows); ok {
-		return s.Rows()[start:count], moreRows
+	if s, ok := data.(ModelDataRows); ok {
+		return s.Rows(start, start+count), moreRows
 	} else {
 		rows := make([]interface{}, count)
 		for i := 0; i < len(rows); i++ {
@@ -157,11 +141,10 @@ func (m *Model) Moved(start, count, destination int) {
 }
 
 func (m *Model) Updated(row int) {
-	data := m.dataSource()
-	if data == nil {
+	if m.Data == nil {
 		// No-op for uninitialized objects
 		return
 	}
 
-	m.ModelAPI.Emit("modelUpdate", row, data.Row(row))
+	m.ModelAPI.Emit("modelUpdate", row, m.Data.Row(row))
 }

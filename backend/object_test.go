@@ -164,7 +164,7 @@ func TestMethods(t *testing.T) {
 	// fake the API a little bit.
 	strObjRef := make(map[string]string)
 	strObjRef["_qbackend_"] = "object"
-	strObjRef["identifier"] = strObj.Identifier()
+	strObjRef["identifier"] = strObj.id
 	if _, err := q.invoke("update", strObjRef); err != nil {
 		t.Errorf("Invoking 'Update' failed: %v", err)
 	}

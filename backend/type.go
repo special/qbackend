@@ -12,12 +12,13 @@ import (
 var methodBlacklist []string = []string{
 	"MarshalJSON",
 	"Connection",
-	"Identifier",
 	"Referenced",
 	"Emit",
 	"ResetProperties",
 	"Changed",
 	"InitObject",
+	"ObjectActivated",
+	"ObjectDeactivated",
 }
 
 // typeInfo is the internal parsing and representation of a Go struct

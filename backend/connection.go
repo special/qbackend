@@ -304,7 +304,7 @@ func (c *Connection) Process() error {
 						Value      []interface{} `json:"value,omitempty"`
 					}{
 						messageBase{"INVOKE_RETURN"},
-						impl.Identifier(),
+						impl.id,
 						returnId,
 						errString,
 						re,
@@ -416,21 +416,6 @@ func (c *Connection) removeObject(id string, q *QObject) {
 	}
 }
 
-// Object returns an active QObject by its identifier.
-//
-// Active objects are known or could be known to the client, or are kept
-// alive for other reasons. When the client doesn't have any reference to
-// an object, it becomes inactive and Connection no longer refers to it.
-// Inactive objects could be garbage collected, or could be re-activated
-// if they're sent to the client again.
-func (c *Connection) Object(id string) AnyQObject {
-	if obj, ok := c.objects[id]; ok {
-		return obj
-	} else {
-		return nil
-	}
-}
-
 func (c *Connection) sendUpdate(impl *QObject) error {
 	if !impl.Referenced() {
 		return nil
@@ -448,7 +433,7 @@ func (c *Connection) sendUpdate(impl *QObject) error {
 		Data       map[string]interface{} `json:"data"`
 	}{
 		messageBase{"OBJECT_RESET"},
-		impl.Identifier(),
+		impl.id,
 		data,
 	})
 	return nil
@@ -460,7 +445,7 @@ func (c *Connection) sendEmit(obj *QObject, method string, data []interface{}) e
 		Identifier string        `json:"identifier"`
 		Method     string        `json:"method"`
 		Parameters []interface{} `json:"parameters"`
-	}{messageBase{"EMIT"}, obj.Identifier(), method, data})
+	}{messageBase{"EMIT"}, obj.id, method, data})
 	return nil
 }
 
@@ -538,8 +523,6 @@ func (c *Connection) RegisterType(name string, template AnyQObject) error {
 // Singletons must be registered before the connection is started, and the name must
 // start with an uppercase letter, which is how they appear within QML, and must not
 // conflict with any other type.
-//
-// A singleton object's ID is its name. It can be found with Connection.Object().
 func (c *Connection) RegisterSingleton(name string, object AnyQObject) error {
 	if c.started {
 		return fmt.Errorf("Singleton '%s' must be registered before the connection starts", name)

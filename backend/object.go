@@ -123,11 +123,8 @@ import (
 // fields (so they can be called directly). It's safe to call QObject's methods
 // on an uninitialized object; they generally have no effect.
 //
-// Objects can be initialized immediately with Connection. A custom object ID can
-// be set with Connection.InitObjectId(). This can be useful when wrapping an
-// external Go type with a QObject type, because keeping a list of pointers would
-// prevent garbage collection. The QObject can be found by ID with Connection.Object()
-// if it still exists.
+// If necessary, QObject can be initialized immediately with Initialize(). This is
+// mainly useful to populate signal function fields.
 //
 // Garbage Collection
 //
@@ -289,13 +286,6 @@ func (o *QObject) Connection() *Connection {
 	return o.c
 }
 
-// Identifier is unique for each object. Objects can be found by their
-// identifier from the Connection. The identifier is randomly assigned,
-// unless it was initialized explicitly with Connection.InitObjectId.
-func (o *QObject) Identifier() string {
-	return o.id
-}
-
 // Referenced is true when there could be a client-side reference to
 // this object. When false, all signals are ignored and the object
 // will not be marshaled.
@@ -358,7 +348,7 @@ func (o *QObject) invoke(methodName string, inArgs ...interface{}) ([]interface{
 
 			// Will be nil if the object does not exist
 			// Replace the inArgValue so the logic below can handle type matching and conversion
-			inArgValue = reflect.ValueOf(o.c.Object(objV.String()))
+			inArgValue = reflect.ValueOf(o.c.objects[objV.String()])
 		}
 
 		// Match types, converting or unmarshaling if possible

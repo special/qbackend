@@ -257,6 +257,19 @@ int BackendObjectPrivate::metacall(QMetaObject::Call c, int id, void **argv)
                 m_waitingForData = false;
             }
 
+            // XXX So, this is stored as JSON, not QJSValue.. meaning it gets parsed out every time, and meaning
+            // it can't hold JS references to objects.
+            //
+            // The JS references for objects are an important point. If an OBJECT_DEREF is sent for an object that
+            // is in properties, it's no longer valid to use or OBJECT_REF unless it is sent from backend again.
+            //
+            // For simpler types, it's pretty common in normal Qt code to make those conversions; not concerned
+            // Really, not concerned overall; it can look that up for a QObject also. So it's just the refs, or
+            // anything that requires especially expensive conversion from JSON.
+            //
+            // XXX oh bother, now they're being saved as QJSValue but in many cases this wants real types. Ugh.
+            // Maybe it should be QVariant? Or is it just as sane to unwrap the QJSValue here?
+
             auto type = static_cast<QMetaType::Type>(property.userType());
             auto value = m_data.value(property.name());
             if (static_cast<QMetaType::Type>(value.type()) != type && !value.convert(type)) {

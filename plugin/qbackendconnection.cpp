@@ -588,6 +588,28 @@ QByteArray QBackendConnection::invokeMethodWithReturn(const QByteArray& objectId
     return returnId.toUtf8();
 }
 
+// XXX ... are these lifetimes totally broken for objects in properties? After the sync changes,
+// I think they are. They were probably before too, because the refcounting in properties was such a mess.
+//
+// There's no object_ref until an object is actually returned to QML. But after sending SYNC_ACK, it's no
+// longer valid to OBJECT_REF anything that arrived before the SYNC unless it has been seen after.
+//
+// Meaning, effectively, there needs to be a client ref on any object referenced in properties -- or anywhere,
+// really.
+//
+// It could also be worth having two types of references; a weaker "could instantiate" and a "have instance",
+// with the distinction being that only the latter need property updates and signals.
+//
+// But how is all of that tracked with regards to properties/etc?
+//
+// Wondering if it makes sense to strip out the JSON at the connection level so those refs always get parsed
+// out with message handling. This is maybe more expensive for objects with a lot of unused data, but it might
+// have some benefits too. Hmm.
+//
+// Other question is: does the client actually need to report back references (of the former type), or can the
+// backend acquire them automatically and just rely on the client to release? That feels scary/bug-prone, but
+// I'm not sure it's any less bug prone to leave it all to the client.
+
 void QBackendConnection::addObjectProxy(const QByteArray& identifier, QBackendRemoteObject* proxy)
 {
     if (m_objects.contains(identifier)) {

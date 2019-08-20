@@ -360,6 +360,10 @@ func (c *Connection) activateObject(obj AnyQObject) error {
 		q.syncRef = true
 		c.syncObjects++
 	}
+
+	if o, ok := obj.(QObjectHasActivation); ok {
+		o.ObjectActivated()
+	}
 	return nil
 }
 
@@ -407,6 +411,9 @@ func (c *Connection) removeObject(id string, q *QObject) {
 	delete(c.objects, id)
 	q.clientRef, q.syncRef, q.syncPendingRef = false, false, false
 	q.c = nil
+	if o, ok := q.object.(QObjectHasActivation); ok {
+		o.ObjectDeactivated()
+	}
 }
 
 // Object returns an active QObject by its identifier.

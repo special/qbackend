@@ -188,6 +188,20 @@ type QObjectHasInit interface {
 	InitObject()
 }
 
+// If a QObject type implements QObjectHasActivation, these functions are
+// called when the object is activated and deactivated with the Connection.
+// Objects can be re-activated.
+//
+// An active object might have a reference with the client and generally
+// emits signals. Objects are deactivated after it is no longer possible for
+// the client to have a valid reference. The Connection does not keep
+// deactivated objects, so they are also potentially subject to Go garbage
+// collection.
+type QObjectHasActivation interface {
+	ObjectActivated()
+	ObjectDeactivated()
+}
+
 // When instantiable QObjects are created from QML, these methods will be
 // called on construction (after all initial properties are set) and
 // destruction respectively if they are implemented. It is not necessary

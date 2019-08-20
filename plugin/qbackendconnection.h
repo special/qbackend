@@ -19,8 +19,7 @@ public:
 
     virtual QObject *object() const = 0;
 
-    // Called when an object has been associated with the subscribed identifier
-    virtual void objectFound(const QJsonObject& object) = 0;
+    virtual void updateData(const QHash<QByteArray, QVariant> &properties, bool reset) = 0;
 
     // Called when a method is invoked on this object
     virtual void methodInvoked(const QString& method, const QJsonArray& params) = 0;
@@ -65,6 +64,8 @@ public:
     QJsonObject waitForMessage(const char* waitType, std::function<bool(const QJsonObject&)> callback);
 
     QMetaObject *newTypeMetaObject(const QJsonObject &type);
+    QJSValue jsonValueToJSValue(const QJsonValue &value);
+    QHash<QByteArray, QVariant> jsonObjectToData(const QJsonObject &object);
 
 signals:
     void urlChanged();

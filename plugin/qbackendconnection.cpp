@@ -447,7 +447,7 @@ void QBackendConnection::handleMessage(const QJsonObject &cmd)
         QByteArray identifier = cmd.value("identifier").toString().toUtf8();
         auto obj = m_objects.value(identifier);
         if (obj) {
-            obj->objectFound(cmd.value("data").toObject());
+            obj->updateData(jsonObjectToData(cmd.value("data").toObject()), true);
         }
     } else if (command == "EMIT") {
         QByteArray identifier = cmd.value("identifier").toString().toUtf8();
@@ -750,4 +750,64 @@ QMetaObject *QBackendConnection::newTypeMetaObject(const QJsonObject &type)
     // Return a copy of the cached metaobject
     QMetaObjectBuilder b(mo);
     return b.toMetaObject();
+}
+
+QJSValue QBackendConnection::jsonValueToJSValue(const QJsonValue &value)
+{
+    switch (value.type()) {
+    case QJsonValue::Null:
+        return QJSValue(QJSValue::NullValue);
+    case QJsonValue::Undefined:
+        return QJSValue(QJSValue::UndefinedValue);
+    case QJsonValue::Bool:
+        return QJSValue(value.toBool());
+    case QJsonValue::Double:
+        return QJSValue(value.toDouble());
+    case QJsonValue::String:
+        return QJSValue(value.toString());
+    case QJsonValue::Array:
+        {
+            QJsonArray array = value.toArray();
+            QJSValue v = qmlEngine()->newArray(array.size());
+            for (int i = 0; i < array.size(); i++) {
+                v.setProperty(i, jsonValueToJSValue(array.at(i)));
+            }
+            return v;
+        }
+    case QJsonValue::Object:
+        {
+            QJsonObject object = value.toObject();
+            if (object.value("_qbackend_").toString() == "object")
+                return ensureJSObject(object);
+
+            QJSValue v = qmlEngine()->newObject();
+            for (auto it = object.constBegin(); it != object.constEnd(); it++) {
+                v.setProperty(it.key(), jsonValueToJSValue(it.value()));
+            }
+            return v;
+        }
+    }
+    return QJSValue();
+}
+
+QHash<QByteArray, QVariant> QBackendConnection::jsonObjectToData(const QJsonObject &object)
+{
+    QHash<QByteArray, QVariant> data;
+    for (auto it = object.constBegin(); it != object.constEnd(); it++) {
+        QVariant v;
+
+        switch (it.value().type()) {
+        case QJsonValue::Array:
+        case QJsonValue::Object:
+            v = QVariant::fromValue(jsonValueToJSValue(it.value()));
+            break;
+
+        default:
+            v = it.value().toVariant();
+            break;
+        }
+
+        data.insert(it.key().toLatin1(), v);
+    }
+    return data;
 }

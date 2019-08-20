@@ -109,11 +109,6 @@ BackendObjectPrivate::~BackendObjectPrivate()
         delete p;
 }
 
-void BackendObjectPrivate::objectFound(const QJsonObject &object)
-{
-    resetData(object);
-}
-
 void BackendObjectPrivate::methodInvoked(const QString &name, const QJsonArray &params)
 {
     // Technically, this should find the signal by its full signature, to enable overloads.
@@ -155,7 +150,7 @@ void BackendObjectPrivate::methodReturned(const QByteArray& returnId, const QJso
         return;
 
     if (isError) {
-        promise->reject(jsonValueToJSValue(m_connection->qmlEngine(), value));
+        promise->reject(m_connection->jsonValueToJSValue(value));
     } else {
         // Unwrap the return values array if appropriate
         QJsonValue rv = value;
@@ -165,7 +160,7 @@ void BackendObjectPrivate::methodReturned(const QByteArray& returnId, const QJso
         } else if (values.count() == 1) {
             rv = values[0];
         }
-        promise->resolve(jsonValueToJSValue(m_connection->qmlEngine(), rv));
+        promise->resolve(m_connection->jsonValueToJSValue(rv));
     }
 
     // This object wraps the JS Promise object. QML never interacts with
@@ -192,35 +187,53 @@ void BackendObjectPrivate::componentComplete()
     }
 }
 
-void BackendObjectPrivate::resetData(const QJsonObject& object)
+void BackendObjectPrivate::updateData(const QHash<QByteArray, QVariant> &data, bool reset)
 {
-    qCDebug(lcObject) << "Resetting " << m_identifier << " to " << object;
-    m_dataObject = object;
-    m_dataReady = true;
-
-    // Don't emit signals for the initial query of properties; nothing could
-    // have read properties before this, so it's meaningless to say that they
-    // have changed.
-    //
-    // This is distinct from m_dataReady, because spontaneous change signals
-    // should still be sent even if data hadn't been loaded before. The signals
-    // are suppressed only for data in response to an OBJECT_QUERY.
-    if (m_waitingForData) {
-        return;
-    }
-
-    // XXX Do something smarter than signaling for every property
-    // XXX This is also wrong: any properties in the old m_dataObject that
-    // aren't in object have also changed.
     const QMetaObject *metaObject = m_object->metaObject();
-    for (auto it = m_dataObject.constBegin(); it != m_dataObject.constEnd(); it++) {
-        int index = metaObject->indexOfProperty(it.key().toUtf8());
-        if (index < 0)
-            continue;
-        QMetaProperty property = metaObject->property(index);
-        int notifyIndex = property.notifySignalIndex();
-        if (notifyIndex >= 0) {
-            QMetaObject::activate(m_object, notifyIndex, nullptr);
+
+    if (reset) {
+        qCDebug(lcObject) << "Resetting data for" << m_identifier;
+        m_data = data;
+        m_dataReady = true;
+
+        // Don't emit signals for the initial query of properties; nothing could
+        // have read properties before this, so it's meaningless to say that they
+        // have changed.
+        //
+        // This is distinct from m_dataReady, because spontaneous change signals
+        // should still be sent even if data hadn't been loaded before. The signals
+        // are suppressed only for data in response to an OBJECT_QUERY.
+        if (m_waitingForData) {
+            return;
+        }
+
+        // XXX This is also wrong: any properties in the old m_dataObject that
+        // aren't in object have also changed.
+        for (auto it = m_data.constBegin(); it != m_data.constEnd(); it++) {
+            int index = metaObject->indexOfProperty(it.key());
+            if (index < 0)
+                continue;
+            QMetaProperty property = metaObject->property(index);
+            int notifyIndex = property.notifySignalIndex();
+            if (notifyIndex >= 0) {
+                QMetaObject::activate(m_object, notifyIndex, nullptr);
+            }
+        }
+    } else {
+        // XXX This is not reachable/tested currently, until non-reset property updates exist
+        for (auto it = m_data.constBegin(); it != m_data.constEnd(); it++) {
+            m_data[it.key()] = it.value();
+
+            int index = metaObject->indexOfProperty(it.key());
+            if (index < 0) {
+                qCWarning(lcObject) << "Cannot find property matching update of" << it.key() << "on" << metaObject->className();
+                continue;
+            }
+
+            QMetaProperty property = metaObject->property(index);
+            int notifyIndex = property.notifySignalIndex();
+            if (notifyIndex >= 0)
+                QMetaObject::activate(m_object, notifyIndex, nullptr);
         }
     }
 }
@@ -244,7 +257,17 @@ int BackendObjectPrivate::metacall(QMetaObject::Call c, int id, void **argv)
                 m_waitingForData = false;
             }
 
-            jsonValueToMetaArgs(static_cast<QMetaType::Type>(property.userType()), m_dataObject.value(property.name()), argv[0]);
+            auto type = static_cast<QMetaType::Type>(property.userType());
+            auto value = m_data.value(property.name());
+            if (static_cast<QMetaType::Type>(value.type()) != type && !value.convert(type)) {
+                qCWarning(lcObject) << "Cannot convert" << property.typeName() << "to" << value.typeName() << "for data of property" << property.name() << "on type" << metaObject->className();
+                argv[0] = nullptr;
+            } else {
+                if (!argv[0])
+                    argv[0] = QMetaType::create(type, value.data());
+                else
+                    argv[0] = QMetaType::construct(type, argv[0], value.data());
+            }
         }
 
         id -= count;
@@ -323,45 +346,6 @@ int BackendObjectPrivate::metacall(QMetaObject::Call c, int id, void **argv)
     }
 
     return id;
-}
-
-QJSValue BackendObjectPrivate::jsonValueToJSValue(QJSEngine *engine, const QJsonValue &value)
-{
-    switch (value.type()) {
-    case QJsonValue::Null:
-        return QJSValue(QJSValue::NullValue);
-    case QJsonValue::Undefined:
-        return QJSValue(QJSValue::UndefinedValue);
-    case QJsonValue::Bool:
-        return QJSValue(value.toBool());
-    case QJsonValue::Double:
-        return QJSValue(value.toDouble());
-    case QJsonValue::String:
-        return QJSValue(value.toString());
-    case QJsonValue::Array:
-        {
-            QJsonArray array = value.toArray();
-            QJSValue v = engine->newArray(array.size());
-            for (int i = 0; i < array.size(); i++) {
-                v.setProperty(i, jsonValueToJSValue(engine, array.at(i)));
-            }
-            return v;
-        }
-    case QJsonValue::Object:
-        {
-            QJsonObject object = value.toObject();
-            if (object.value("_qbackend_").toString() == "object")
-                return m_connection->ensureJSObject(object);
-
-            QJSValue v = engine->newObject();
-            for (auto it = object.constBegin(); it != object.constEnd(); it++) {
-                v.setProperty(it.key(), jsonValueToJSValue(engine, it.value()));
-            }
-            return v;
-        }
-    default:
-        Q_UNREACHABLE();
-    }
 }
 
 QJsonValue jsValueToJsonValue(const QJSValue &value)
@@ -455,7 +439,7 @@ void *BackendObjectPrivate::jsonValueToMetaArgs(QMetaType::Type type, const QJso
     default:
         if (type == QMetaType::type("QJSValue")) {
             // m_object may not have been exposed to the engine yet, so use the connection's
-            p = copyMetaArg(type, p, jsonValueToJSValue(m_connection->qmlEngine(), value));
+            p = copyMetaArg(type, p, m_connection->jsonValueToJSValue(value));
         } else {
             qCWarning(lcObject) << "Unknown type" << QMetaType::typeName(type) << "in JSON value conversion";
         }

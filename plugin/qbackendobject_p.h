@@ -19,7 +19,7 @@ public:
     QByteArray m_identifier;
     bool m_instantiated = false;
 
-    QJsonObject m_dataObject;
+    QHash<QByteArray, QVariant> m_data;
     bool m_dataReady = false;
     bool m_waitingForData = false;
 
@@ -30,10 +30,9 @@ public:
     virtual ~BackendObjectPrivate();
 
     QObject *object() const override { return m_object; }
-    void objectFound(const QJsonObject& object) override;
     void methodInvoked(const QString& method, const QJsonArray& params) override;
     void methodReturned(const QByteArray& returnId, const QJsonValue& value, bool isError) override;
-    void resetData(const QJsonObject &data);
+    void updateData(const QHash<QByteArray, QVariant> &properties, bool reset) override;
 
     int metacall(QMetaObject::Call c, int id, void **argv);
 
@@ -41,7 +40,6 @@ public:
     void componentComplete();
 
     void *jsonValueToMetaArgs(QMetaType::Type type, const QJsonValue &value, void *p = nullptr);
-    QJSValue jsonValueToJSValue(QJSEngine *engine, const QJsonValue &value);
 };
 
 QMetaObject *metaObjectFromType(const QJsonObject &type, const QMetaObject *superClass = nullptr);

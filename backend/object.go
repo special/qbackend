@@ -8,6 +8,7 @@ import (
 	"reflect"
 )
 
+// XXX really should not be using json
 
 // Add names of any functions in QObject to the blacklist in type.go
 
@@ -126,6 +127,7 @@ import (
 // If necessary, QObject can be initialized immediately with Initialize(). This is
 // mainly useful to populate signal function fields.
 //
+// XXX
 // Garbage Collection
 //
 // QObject types are garbage collected the same as any other type in Go. Once there
@@ -252,6 +254,35 @@ func Initialize(object AnyQObject) error {
 	}
 	return nil
 }
+
+// XXX
+// In some cases, it's useful to look up an object by a known/composed name,
+// because holding a reference to that object would prevent garbage collection.
+// This is particularly true when writing wrapper types where the object is
+// uniquely wrapping another non-QObject type.
+//
+// Is that the right solution? Can it be neatly re-implemented? It gets weird,
+// because of how aggressively things can be dropped out of the connection's
+// object list...
+
+// wrappers: ugh.
+//
+// with an explicit function notifying that an object has dropped out of the connection,
+// it'd be possible for user code to track its own wrappers and drop them as needed
+//
+// the initobjectid option works too, but feels awkwardly integrated with internals
+// of the connection and object.
+//
+// because of signals/etc it has to be possible to find the same object from the
+// backend user code
+//
+// and lifetime needs to be controlled by client, at least partially, or backend ends
+// up holding way more than it needs because it can't know
+//
+// even with the "object dropped" message, it's pretty easy to end up with multiple
+// instances. if something else referred to it, connection won't necessarily know..
+// that seems like a strong potential for bugs.. but that is actually the same as the
+// initobjectid method. callback seems most sensible.
 
 func (q *QObject) initSignals() {
 	if q.object == nil || q.typeInfo == nil {
@@ -459,6 +490,8 @@ func (o *QObject) ResetProperties() {
 	o.c.sendUpdate(o)
 }
 
+// XXX is this all actually true anymore? should revisit marshal in general
+//
 // Unfortunately, even though this method is embedded onto the object type, it can't
 // be used to marshal the object type. The QObject field is not explicitly initialized;
 // it's meant to initialize automatically when an object is encountered. That isn't
@@ -532,6 +565,9 @@ func (o *QObject) marshalObject() (map[string]interface{}, error) {
 	return data, nil
 }
 
+// XXX it may be possible to do all of this during a normal marshal instead
+// of a second pass now.
+//
 // initObjectsUnder scans a Value for references to any QObject types, and
 // initializes these if necessary. This scan is recursive through any types
 // other than QObject itself.

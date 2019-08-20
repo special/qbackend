@@ -15,6 +15,11 @@ type Model struct {
 	ModelAPI *modelAPI `json:"_qb_model"`
 }
 
+// XXX would like a struct based API here (primarily); maybe still an
+// interface (serialize?) below that if desired
+//
+// or maybe that mostly gets left to SliceModel?
+
 // Types embedding Model must implement ModelDataSource to provide data
 type ModelDataSource interface {
 	Row(row int) interface{}
